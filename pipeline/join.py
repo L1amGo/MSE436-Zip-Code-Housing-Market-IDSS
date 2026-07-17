@@ -16,12 +16,14 @@ log = get_logger("join")
 
 
 def _append_report(section: str) -> None:
+    """Idempotent append: an existing Join coverage section is replaced, so
+    repeated runs never stack duplicates."""
     report = REPO_ROOT / "data" / "data_quality_report.md"
     report.parent.mkdir(parents=True, exist_ok=True)
-    if not report.exists():
-        report.write_text("# Data quality report\n", encoding="utf-8")
-    report.write_text(report.read_text(encoding="utf-8") + section, encoding="utf-8")
-    log.info("appended Join coverage section to %s", report.relative_to(REPO_ROOT))
+    text = report.read_text(encoding="utf-8") if report.exists() else "# Data quality report\n"
+    head, marker, _ = text.partition("\n## Join coverage")
+    report.write_text(head + section, encoding="utf-8")
+    log.info("wrote Join coverage section to %s", report.relative_to(REPO_ROOT))
 
 
 def run(config: dict, force: bool = False) -> None:

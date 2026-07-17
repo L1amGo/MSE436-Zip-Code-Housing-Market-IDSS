@@ -111,6 +111,15 @@ class TestLowVolume:
         assert out["low_volume"].tolist() == [True, False, True]
 
 
+class TestAllNullColumn:
+    def test_column_with_no_data_anywhere_is_dropped(self):
+        df = _redfin_frame([{"begin": "2024-01-01"}, {"begin": "2024-02-01"}])
+        df["price_drops"] = float("nan")  # Redfin ships this as NA on every zip row
+        out = tidy_redfin(df, THRESHOLD)
+        assert "price_drops" not in out.columns
+        assert "sold_above_list" in out.columns
+
+
 class TestNullPrice:
     def test_null_median_sale_price_dropped(self):
         df = _redfin_frame(

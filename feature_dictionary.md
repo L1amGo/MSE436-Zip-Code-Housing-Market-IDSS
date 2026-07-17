@@ -14,7 +14,6 @@ use only information available at `t`; only `target` looks forward.
 | `median_dom` | median days on market | level | Redfin |
 | `avg_sale_to_list` | average sale-to-list price ratio | level | Redfin |
 | `sold_above_list` | share of sales above list price | level | Redfin |
-| `price_drops` | share of listings with a price drop | level | Redfin |
 | `low_volume` | homes_sold below config low_volume_threshold (flag, rows kept) | homes_sold < threshold | derived (Redfin) |
 | `zhvi` | Zillow Home Value Index, smoothed + seasonally adjusted ($) | level | Zillow |
 | `MORTGAGE30US` | 30-year fixed mortgage rate, monthly mean of weekly obs (%) | level (national, monthly) | FRED |

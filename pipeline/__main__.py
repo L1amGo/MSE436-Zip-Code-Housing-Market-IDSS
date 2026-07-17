@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from pipeline import clean, download, featurize, join, split, verify_schema
+from pipeline import clean, download, featurize, join, report, split, verify_schema
 from pipeline.io_utils import load_config
 
 STAGES = {
@@ -13,6 +13,7 @@ STAGES = {
     "join": join.run,
     "featurize": featurize.run,
     "split": split.run,
+    "report": report.run,
 }
 
 

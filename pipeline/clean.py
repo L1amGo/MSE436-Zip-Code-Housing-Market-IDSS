@@ -90,6 +90,13 @@ def tidy_redfin(df: pd.DataFrame, low_volume_threshold: int) -> pd.DataFrame:
 
     df = df.assign(low_volume=df["homes_sold"].fillna(0) < low_volume_threshold)
     df = df[["zip", "month", *REDFIN_NUMERIC, "low_volume"]]
+    # Columns Redfin ships in the header but never populates at zip level
+    # (PRICE_DROPS is "NA" on every raw row as of 2026-07) carry no signal —
+    # drop them loudly rather than exporting a 100%-null feature.
+    all_null = [c for c in REDFIN_NUMERIC if df[c].isna().all()]
+    if all_null:
+        log.warning("redfin: dropping column(s) with no published zip-level data: %s", all_null)
+        df = df.drop(columns=all_null)
     return df.sort_values(["zip", "month"], kind="mergesort").reset_index(drop=True)
 
 
