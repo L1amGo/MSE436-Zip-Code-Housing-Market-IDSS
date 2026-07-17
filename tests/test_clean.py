@@ -149,4 +149,22 @@ class TestFred:
         jan = out[out["month"] == "2024-01-01"].iloc[0]
         assert jan["WEEKLY"] == pytest.approx(6.5), "'.' excluded from the mean"
         assert jan["MONTHLY"] == pytest.approx(3.7)
-        assert out[out["month"] == "2024-02-01"]["MONTHLY"].isna().all(), "no forward-fill"
+        assert out[out["month"] == "2024-02-01"]["MONTHLY"].isna().all(), "no trailing fill"
+
+    def test_interior_gap_forward_filled_but_trailing_stays_nan(self):
+        obs = {
+            "GAPPY": [
+                {"date": "2024-01-01", "value": "4.0"},
+                {"date": "2024-02-01", "value": "."},  # interior gap (shutdown-style)
+                {"date": "2024-03-01", "value": "5.0"},
+            ],
+            "LONGER": [
+                {"date": "2024-01-01", "value": "1.0"},
+                {"date": "2024-02-01", "value": "1.0"},
+                {"date": "2024-03-01", "value": "1.0"},
+                {"date": "2024-04-01", "value": "1.0"},  # extends past GAPPY's end
+            ],
+        }
+        out = tidy_fred(obs, {"GAPPY": "M", "LONGER": "M"}).set_index("month")
+        assert out.loc["2024-02-01", "GAPPY"] == pytest.approx(4.0), "interior gap ffilled"
+        assert pd.isna(out.loc["2024-04-01", "GAPPY"]), "trailing month must stay NaN"

@@ -25,6 +25,7 @@ params:
   property_type: "All Residential"
   target_outlier_threshold: 0.50  # |target| above this -> target_outlier flag
   dev_metro_filter: []         # optional metro list to shrink data in dev; empty = all
+  join_coverage_min: 0.50      # zillow match rate below this aborts the join (misaligned keys)
 
 paths:
   raw: data/raw

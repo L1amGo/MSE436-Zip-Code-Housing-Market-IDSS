@@ -18,8 +18,9 @@ Monthly aggregation rules:
   - Zillow month columns are month-END dates; they are shifted to the
     month-begin convention used everywhere else.
   - FRED weekly series are averaged to calendar months (monthly series pass
-    through unchanged). No forward-filling anywhere: months FRED has not
-    published yet stay absent/NaN.
+    through unchanged). Interior gap months (e.g. UNRATE's Oct-2025 shutdown
+    hole) are forward-filled with the last published value and logged;
+    trailing months FRED has not published yet stay NaN.
 
 Every filter step logs rows in -> rows out. Low-volume rows are flagged
 (`low_volume`), never dropped.
@@ -134,6 +135,24 @@ def tidy_fred(observations: dict[str, list[dict]], frequencies: dict[str, str]) 
         )
         monthly[series] = agg
     out = pd.DataFrame(monthly).sort_index()
+    # Forward-fill INTERIOR gaps only (e.g. the Oct-2025 shutdown hole in
+    # UNRATE): a gap month reuses the last published value, which was known at
+    # the time — leakage-safe. Trailing months beyond a series' latest
+    # publication stay NaN; they are unknown, not missing.
+    for col in out.columns:
+        s = out[col]
+        interior = s.loc[s.first_valid_index() : s.last_valid_index()]
+        gaps = interior[interior.isna()].index
+        if len(gaps):
+            log.info(
+                "fred %s: forward-filling %d interior gap month(s): %s",
+                col,
+                len(gaps),
+                [g.strftime("%Y-%m") for g in gaps],
+            )
+            filled = s.ffill()
+            filled.loc[filled.index > s.last_valid_index()] = float("nan")
+            out[col] = filled
     out.index.name = "month"
     return out.reset_index()
 
