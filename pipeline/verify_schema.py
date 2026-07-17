@@ -9,16 +9,14 @@ Downloads headers only (a few KB per source), never full files.
 """
 
 import datetime
-import os
 import re
 import zlib
 from pathlib import Path
 
 import requests
 import yaml
-from dotenv import load_dotenv
 
-from pipeline.io_utils import CONFIG_PATH, REPO_ROOT, get_logger
+from pipeline.io_utils import CONFIG_PATH, REPO_ROOT, get_fred_key, get_logger
 
 log = get_logger("verify-schema")
 
@@ -109,21 +107,10 @@ def _map_logical(logical: list[str], header: list[str], candidates: dict) -> tup
     return mapping, missing
 
 
-def _fred_key() -> str:
-    load_dotenv(REPO_ROOT / ".env")
-    key = os.environ.get("FRED_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError(
-            "FRED_API_KEY is not set. Copy .env.example to .env and add your key "
-            "(free at https://fred.stlouisfed.org/docs/api/api_key.html)."
-        )
-    return key
-
-
 def _verify_fred(config: dict) -> dict:
     """Confirm each configured series exists; return {series: {frequency, dtype, latest}}."""
     base = config["sources"]["fred"]["base_url"]
-    key = _fred_key()
+    key = get_fred_key()
     out = {}
     for series in config["sources"]["fred"]["series"]:
         meta_resp = requests.get(
