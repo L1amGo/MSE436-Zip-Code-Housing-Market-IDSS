@@ -36,3 +36,4 @@ use only information available at `t`; only `target` looks forward.
 | `month_of_year` | calendar month integer 1-12 (seasonality) | month(t) | derived |
 | `target` | label: 3-month-ahead % change in median sale price (fraction; NaN = live row) | price[t+3] / price[t] - 1 | derived (Redfin, future) |
 | `target_outlier` | |target| exceeds config target_outlier_threshold (flag, rows kept) | |target| > threshold | derived |
+| `split` | temporal split (added by the split stage) | test = last holdout_months labeled months; train = labeled rows before; live = NaN target | derived |

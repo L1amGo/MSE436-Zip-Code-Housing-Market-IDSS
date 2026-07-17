@@ -122,4 +122,7 @@ class TestFeatureDictionary:
         documented = set(
             re.findall(r"^\| `([^`]+)`", self.DICTIONARY.read_text(encoding="utf-8"), re.MULTILINE)
         )
-        assert documented == parquet_cols
+        # `split` is documented up front but only lands in the parquet once the
+        # split stage has run; everything else must match exactly.
+        assert parquet_cols <= documented
+        assert documented - parquet_cols <= {"split"}

@@ -96,6 +96,7 @@ def _feature_dictionary(config: dict) -> dict[str, tuple[str, str, str]]:
         "month_of_year": ("calendar month integer 1-12 (seasonality)", "month(t)", "derived"),
         "target": (f"label: {h}-month-ahead % change in median sale price (fraction; NaN = live row)", f"price[t+{h}] / price[t] - 1", "derived (Redfin, future)"),
         "target_outlier": ("|target| exceeds config target_outlier_threshold (flag, rows kept)", "|target| > threshold", "derived"),
+        "split": ("temporal split (added by the split stage)", "test = last holdout_months labeled months; train = labeled rows before; live = NaN target", "derived"),
     }
     for k in MOMENTUM_LAGS:
         d[f"price_mom_{k}m"] = (f"{k}-month % change in median sale price", f"price[t] / price[t-{k}] - 1", "derived (Redfin)")
@@ -160,4 +161,8 @@ def run(config: dict, force: bool = False) -> None:
 
     features.to_parquet(processed / "features.parquet", index=False)
     log.info("wrote %s", (processed / "features.parquet").relative_to(REPO_ROOT))
-    write_feature_dictionary(list(features.columns), config, REPO_ROOT / "feature_dictionary.md")
+    # `split` is appended to the parquet by the split stage; document it now so
+    # the dictionary always covers the finished file.
+    write_feature_dictionary(
+        [*features.columns, "split"], config, REPO_ROOT / "feature_dictionary.md"
+    )
