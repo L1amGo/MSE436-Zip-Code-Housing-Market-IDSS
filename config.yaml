@@ -1,0 +1,36 @@
+# All tunable values for the pipeline live here — no URLs, column names,
+# thresholds, or window sizes are hardcoded in Python.
+
+sources:
+  redfin:
+    # Historical public S3 URL; confirmed live by T1 verify-schema.
+    url: "https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/zip_code_market_tracker.tsv000.gz"
+  zillow:
+    # ZHVI, zip-level, smoothed + seasonally adjusted; confirmed by T1.
+    url: ""
+  fred:
+    base_url: "https://api.stlouisfed.org/fred"
+    series:
+      - MORTGAGE30US
+      - UNRATE
+      - CPIAUCSL
+      - HOUST
+
+params:
+  label_horizon_months: 3      # label = % change in median_sale_price at t+3
+  holdout_months: 6            # test split = most recent 6 labeled months
+  cv_gap_months: 3             # gap between CV train end and validation start
+  train_window_months: 36      # max training window per CV fold
+  low_volume_threshold: 10     # homes sold/month below this -> low_volume flag
+  property_type: "All Residential"
+  target_outlier_threshold: 0.50  # |target| above this -> target_outlier flag
+  dev_metro_filter: []         # optional metro list to shrink data in dev; empty = all
+
+paths:
+  raw: data/raw
+  interim: data/interim
+  processed: data/processed
+
+# Populated by T1 verify-schema: per-source logical -> actual column mapping,
+# discovered from the live files. Do not hand-edit.
+schema: {}
