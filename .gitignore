@@ -1,8 +1,20 @@
 data/
-models/
-!models/.gitkeep
 .env
 __pycache__/
 *.parquet
 .venv/
 .pytest_cache/
+
+# Model artifacts: ignore everything under models/ EXCEPT the canonical trained
+# models + CV metadata, which are committed so the team can use them without
+# retraining. Per-machine retrain artifacts (timestamped files, latest pointer)
+# stay ignored.
+models/*
+!models/.gitkeep
+!models/xgb_point.joblib
+!models/xgb_quantiles.joblib
+!models/cv_results.json
+
+# Shareable prediction outputs are committed (the parquet is normally caught by
+# the *.parquet rule above; re-include the specific export).
+!outputs/zip_predictions.parquet

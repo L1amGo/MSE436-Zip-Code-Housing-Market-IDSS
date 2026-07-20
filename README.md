@@ -95,8 +95,16 @@ python -m model evaluate --intervals        # confidence-band calibration
 python -m model evaluate --holdout          # one-shot 6-month holdout eval + figures
 python -m model explain         # global + per-zip SHAP; writes shap_summary.png
 python -m model scenario-bench  # time a full scenario -> allocation over all zips
+python -m model export          # write outputs/zip_predictions.csv (ranked table, no retrain)
 python -m model all             # train, evaluate, explain in order
 ```
+
+**Using the outputs without retraining:** the trained models
+(`models/xgb_point.joblib`, `models/xgb_quantiles.joblib`, `models/cv_results.json`)
+and a ranked prediction table (`outputs/zip_predictions.csv`) are committed, so a
+teammate can `pip install -r requirements.txt` and immediately run
+`python -m model export` or the importable `predict`/`scenario`/`decide` API — no
+FRED key, no training. See [CLAUDE.md](CLAUDE.md).
 
 The decision layer is importable for the dashboard (no UI deps):
 `scenario.apply_scenario` / `score_scenario`, `decide.rank` / `filter` / `allocate`,
