@@ -38,6 +38,11 @@ paths:
 model:
   random_seed: 42
   quantiles: [0.05, 0.1, 0.5, 0.9, 0.95]   # quantile models for confidence bands
+  quantile_n_estimators: 200                # trees for the band models (< point model's;
+                                            # bands only need to be well-calibrated for risk
+                                            # ranking, not to match headline point accuracy —
+                                            # keeps quantile fitting tractable). depth + lr
+                                            # are inherited from the M2-selected point params.
   cv_folds: 5                               # gapped rolling-CV folds for selection
   xgb_param_grid:                           # small grid, <= 12 combos (3 x 2 x 2)
     max_depth: [3, 5, 7]
@@ -46,7 +51,11 @@ model:
   exclude_flags: [low_volume, target_outlier]  # rows excluded from training + headline metrics
   top_k_shap_features: 10
   scenario_features: [MORTGAGE30US, mortgage_delta_3m]  # macro cols a user may override
-  ci_levels: [80, 95]                       # user-selectable band: 80 -> p10/p90, 95 -> p05/p95
+  ci_levels: [80, 90]                       # user-selectable band: 80 -> p10/p90, 90 -> p05/p95
+                                            # M3 band-label decision: kept p05/p95 and labelled the
+                                            # wider band 90% (its true nominal coverage) rather than
+                                            # training p025/p975 for a literal "95%". Dashboard/slide
+                                            # labels must read 80% / 90%. Recorded in the model card.
   risk_lambda_default: 1.0                  # risk-tolerance coefficient for ranking
   risk_lambda_range: [0.0, 3.0]             # slider range for risk_lambda
   default_min_roi: 0.0                      # filter default: keep zips with p50 >= this

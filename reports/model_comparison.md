@@ -42,6 +42,32 @@ _Only XGBoost is grid-searched. RandomForest and LightGBM use fixed sensible-def
 | 7 | 400 | 0.03 | 0.5383 | 0.1015 |
 | 7 | 400 | 0.1 | 0.5431 | 0.1014 |
 
+## Interval calibration
+
+Empirical coverage of each confidence band on the train-only gapped CV (share of realized 3-month changes that fell inside the band). Nominal coverage is the band's label; a well-calibrated band matches it.
+
+**Band-label decision (M3):** the wider p05-p95 band is labelled **90%** (its true nominal coverage), not 95%. We kept p05/p95 rather than training p025/p975 because the less-extreme tails calibrate more reliably on noisy zip-level data. Dashboard and slide labels must read **80% / 90%**.
+
+_Band models: multi-quantile XGBoost with the M2-selected depth/learning-rate but 200 trees (config `model.quantile_n_estimators`) — fewer than the point model, since the bands feed relative risk ranking rather than the headline point accuracy._
+
+| band | nominal | empirical (pooled) | gap |
+|---|---|---|---|
+| 80% (p10-p90) | 80% | 76.4% | -3.6% |
+| 90% (p05-p95) | 90% | 87.3% | -2.7% |
+
+Both bands calibrate within ±10 points of nominal.
+
+### Per-fold coverage
+
+| fold month | n | 80% (p10-p90) | 90% (p05-p95) |
+|---|---|---|---|
+| 2025-04 | 11,730 | 73.5% | 84.7% |
+| 2025-05 | 12,252 | 72.6% | 85.1% |
+| 2025-06 | 12,591 | 77.7% | 87.9% |
+| 2025-07 | 12,779 | 79.2% | 89.1% |
+| 2025-08 | 12,781 | 79.1% | 89.9% |
+
+
 ## Trade-offs: XGBoost for this task (DRAFT — team must edit)
 
 <!-- TEAM: these are starter claims, not final copy. Review each one against THIS

@@ -397,8 +397,145 @@ def run_comparison(config: dict) -> None:
     write_comparison_report(cv_results, config)
 
 
-def run(config: dict, baselines_only: bool = False) -> None:
+# --- interval calibration (M3) ------------------------------------------------
+
+# Nominal coverage of each band, given the M3 band-label decision (p05/p95 -> 90%).
+BANDS = {"80% (p10-p90)": ("p10", "p90", 0.80), "90% (p05-p95)": ("p05", "p95", 0.90)}
+CALIBRATION_MARKER = "## Interval calibration"
+
+
+def _coverage(y: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> float:
+    """Fraction of realized targets falling inside [lo, hi] (bounds inclusive)."""
+    return float(np.mean((y >= lo) & (y <= hi)))
+
+
+def calibrate_intervals(features: pd.DataFrame, config: dict) -> dict:
+    """Empirical coverage of each band on train-only gapped CV.
+
+    For every fold a fresh multi-quantile model is fit on the fold's train rows
+    and scored on its validation month; coverage is the share of realized targets
+    inside each band. Quantiles are monotonised first (same fix as predict.py), so
+    reported coverage matches what the dashboard will actually show.
+    """
+    from model.predict import QUANTILE_COLS, enforce_monotone
+    from model.train import fit_quantile_model, quantile_params
+
+    mcfg = model_config(config)
+    seed, quantiles = mcfg["random_seed"], mcfg["quantiles"]
+    params = quantile_params(_selected_params(config), config)
+    feat_cols = feature_columns(features)
+    folds = prepared_folds(features, config)
+
+    per_fold = []
+    for train_df, val_df in folds:
+        qmodel = fit_quantile_model(train_df, feat_cols, params, quantiles, seed)
+        qpred = enforce_monotone(qmodel.predict(val_df[feat_cols]))
+        qdf = pd.DataFrame(qpred, columns=QUANTILE_COLS)
+        y = val_df["target"].to_numpy(dtype=float)
+        row = {"month": pd.Timestamp(val_df["month"].iloc[0]).strftime("%Y-%m"), "n": int(len(y))}
+        for label, (lo, hi, _nom) in BANDS.items():
+            row[label] = _coverage(y, qdf[lo].to_numpy(), qdf[hi].to_numpy())
+        per_fold.append(row)
+
+    pooled = {
+        label: float(np.mean([f[label] for f in per_fold])) for label in BANDS
+    }
+    return {"per_fold": per_fold, "pooled": pooled, "params": params}
+
+
+def _selected_params(config: dict) -> dict:
+    """Selected XGBoost params from the cached M2 CV results (fail loudly if absent)."""
+    cv_path = models_dir(config) / "cv_results.json"
+    if not cv_path.exists():
+        raise RuntimeError(
+            f"{cv_path} missing. Run `python -m model train` first (M2) to select params."
+        )
+    return json.loads(cv_path.read_text(encoding="utf-8"))["models"]["xgboost"]["params"]
+
+
+def _calibration_section(cal: dict) -> str:
+    lines = [
+        CALIBRATION_MARKER,
+        "",
+        "Empirical coverage of each confidence band on the train-only gapped CV "
+        "(share of realized 3-month changes that fell inside the band). Nominal "
+        "coverage is the band's label; a well-calibrated band matches it.",
+        "",
+        "**Band-label decision (M3):** the wider p05-p95 band is labelled **90%** "
+        "(its true nominal coverage), not 95%. We kept p05/p95 rather than training "
+        "p025/p975 because the less-extreme tails calibrate more reliably on noisy "
+        "zip-level data. Dashboard and slide labels must read **80% / 90%**.",
+        "",
+        f"_Band models: multi-quantile XGBoost with the M2-selected depth/learning-rate "
+        f"but {cal['params'].get('n_estimators')} trees (config `model.quantile_n_estimators`) "
+        f"— fewer than the point model, since the bands feed relative risk ranking rather "
+        f"than the headline point accuracy._",
+        "",
+        "| band | nominal | empirical (pooled) | gap |",
+        "|---|---|---|---|",
+    ]
+    for label, (_lo, _hi, nom) in BANDS.items():
+        emp = cal["pooled"][label]
+        lines.append(f"| {label} | {nom:.0%} | {emp:.1%} | {emp - nom:+.1%} |")
+    worst = max(abs(cal["pooled"][l] - BANDS[l][2]) for l in BANDS)
+    note = (
+        "Both bands calibrate within ±10 points of nominal."
+        if worst <= 0.10
+        else "At least one band is miscalibrated by more than 10 points — see the gap "
+        "column. On thin/low-volume zips the quantile spread understates true "
+        "dispersion, so treat the band as indicative, not exact; the decision layer "
+        "(M6) uses band width for relative risk ranking, which tolerates a level bias."
+    )
+    lines += ["", note, "", "### Per-fold coverage", "",
+              "| fold month | n | " + " | ".join(BANDS) + " |",
+              "|---|---|" + "|".join(["---"] * len(BANDS)) + "|"]
+    for f in cal["per_fold"]:
+        lines.append(
+            f"| {f['month']} | {f['n']:,} | "
+            + " | ".join(f"{f[label]:.1%}" for label in BANDS)
+            + " |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def run_intervals(config: dict) -> dict:
+    """Compute band calibration and append it to reports/model_comparison.md."""
+    features_path = REPO_ROOT / config["paths"]["processed"] / "features.parquet"
+    if not features_path.exists():
+        raise RuntimeError(f"{features_path} missing. Run `python -m pipeline all` first.")
+    features = pd.read_parquet(features_path)
+    cal = calibrate_intervals(features, config)
+    for label in BANDS:
+        log.info("band %-14s pooled coverage=%.1f%% (nominal %.0f%%)",
+                 label, 100 * cal["pooled"][label], 100 * BANDS[label][2])
+
+    # Insert/replace the calibration section just before the Trade-offs section so
+    # team edits to Trade-offs are preserved and the auto content stays together.
+    path = reports_dir(config) / "model_comparison.md"
+    if not path.exists():
+        raise RuntimeError(f"{path} missing. Run `python -m model train` (M2) first.")
+    text = path.read_text(encoding="utf-8")
+    section = _calibration_section(cal) + "\n"
+    if CALIBRATION_MARKER in text:  # replace existing calibration block
+        head = text[: text.index(CALIBRATION_MARKER)]
+        rest = text[text.index(CALIBRATION_MARKER):]
+        tail = rest[rest.index(TRADEOFFS_MARKER):] if TRADEOFFS_MARKER in rest else ""
+        text = head + section + tail
+    elif TRADEOFFS_MARKER in text:  # insert above Trade-offs
+        idx = text.index(TRADEOFFS_MARKER)
+        text = text[:idx] + section + "\n" + text[idx:]
+    else:
+        text = text + "\n" + section
+    path.write_text(text, encoding="utf-8")
+    log.info("wrote calibration section to %s", path.relative_to(REPO_ROOT))
+    return cal
+
+
+def run(config: dict, baselines_only: bool = False, intervals: bool = False) -> None:
     if baselines_only:
         run_baselines(config)
+    elif intervals:
+        run_intervals(config)
     else:
         run_comparison(config)

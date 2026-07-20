@@ -40,6 +40,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="evaluate: score the M1 reference baselines only (skip model comparison/holdout)",
     )
+    parser.add_argument(
+        "--intervals",
+        action="store_true",
+        help="evaluate: compute confidence-band calibration (M3) and append it to the report",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -47,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage == "all":
             run_all(config)
         elif args.stage == "evaluate":
-            evaluate.run(config, baselines_only=args.baselines_only)
+            evaluate.run(config, baselines_only=args.baselines_only, intervals=args.intervals)
         else:
             STAGES[args.stage](config)
     except NotImplementedError as exc:

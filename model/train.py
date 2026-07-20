@@ -72,6 +72,32 @@ def select_best(grid_results: list[dict], metric: str = SELECTION_METRIC) -> dic
     return max(grid_results, key=key)
 
 
+def quantile_params(selected_params: dict, config: dict) -> dict:
+    """Band-model params: the selected point-model params with the tree count swapped
+    for the (smaller) quantile-specific `model.quantile_n_estimators`."""
+    return {**selected_params, "n_estimators": model_config(config)["quantile_n_estimators"]}
+
+
+def fit_quantile_model(train_df, feat_cols, params: dict, quantiles: list[float], seed: int):
+    """One multi-quantile XGBoost (reg:quantileerror) fit for all configured quantiles.
+
+    xgboost >= 2.0 fits every quantile in a single model whose predict() returns a
+    (n_rows, n_quantiles) matrix — far cheaper than one model per quantile, and the
+    shared trees keep the quantiles better-behaved. Row order of the output columns
+    matches `quantiles`.
+    """
+    m = XGBRegressor(
+        **params,
+        objective="reg:quantileerror",
+        quantile_alpha=np.array(quantiles, dtype=float),
+        random_state=seed,
+        tree_method="hist",
+        n_jobs=-1,
+    )
+    m.fit(train_df[feat_cols], train_df["target"])
+    return m
+
+
 def _xgb_factory(params: dict, seed: int):
     def predict(train_df, val_df, feat_cols, config) -> np.ndarray:
         m = XGBRegressor(
@@ -187,6 +213,24 @@ def run(config: dict) -> None:
     mdir = models_dir(config)
     joblib.dump(artifact, mdir / "xgb_point.joblib")
     log.info("saved models/xgb_point.joblib (fit on %d train rows)", len(train_full))
+
+    # Quantile models (M3): same selected params + full train split, one multi-quantile
+    # fit for the confidence bands. predict.py loads this alongside the point model.
+    quantiles = mcfg["quantiles"]
+    qparams = quantile_params(best["params"], config)
+    qmodel = fit_quantile_model(train_full, feat_cols, qparams, quantiles, seed)
+    joblib.dump(
+        {
+            "model": qmodel,
+            "quantiles": quantiles,
+            "params": qparams,
+            "feature_cols": feat_cols,
+            "seed": seed,
+            "trained_on": {"rows": int(len(train_full)), "split": "train (flagged excluded)"},
+        },
+        mdir / "xgb_quantiles.joblib",
+    )
+    log.info("saved models/xgb_quantiles.joblib (quantiles %s)", quantiles)
 
     # Cache all CV results for the evaluate stage + write the comparison report.
     cv_results = {
