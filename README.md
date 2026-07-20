@@ -8,9 +8,15 @@ allocate a quarterly acquisition budget. Two layers:
    with leakage-safe features, a 3-month label, and temporal splits.
 2. **Model & decision layer** (`model/`): XGBoost point + quantile models, SHAP
    explanations, a scenario engine, and a risk-adjusted ranking/allocation
-   decision layer. The Streamlit dashboard is a later spec; `app/` is a placeholder.
+   decision layer.
+3. **Dashboard** (`app/`): a Streamlit UI where the manager sets risk appetite,
+   eligibility bars, a macro scenario and a budget, and gets back a ranked buy
+   list, a map, a dollar allocation, and a per-zip explanation.
 
 MSCI 436 course project, University of Waterloo.
+
+**New here and just want to see it run?** Jump to
+[Run the dashboard](#run-the-dashboard).
 
 ## Architecture
 
@@ -40,6 +46,15 @@ MSCI 436 course project, University of Waterloo.
    [ explain ]  global + per-zip SHAP -> shap_summary.png + explanations.md
    [ scenario + decide ]  re-score under macro shifts; rank / filter / allocate
    [ retrain ]  monthly refresh + monitoring + versioning -> retrain_log.md
+                             |
+        ================ dashboard layer (app/) ================
+                             |
+   [ sidebar ]  metros, ROI/downside bars, CI level, risk tolerance, rate
+                scenario, budget, exclusions -> every value feeds a model/ call
+                             |
+   [ table + allocation ]  ranked buy list, dollar split, CSV download
+   [ map ]      zip choropleth, fixed diverging scale, rejected zips greyed
+   [ drill-down ]  per-zip contributions, metro comparison, holdout backtest
 ```
 
 ## Setup
@@ -84,6 +99,103 @@ in `data/interim/` + `data/processed/`.
 `data/` and `models/` are gitignored; a fresh clone rebuilds them with
 `python -m pipeline all` then `python -m model all`. Reports in `reports/` are
 committed so they're visible without a run.
+
+## Run the dashboard
+
+```bash
+streamlit run app/main.py       # opens http://localhost:8501
+```
+
+The dashboard needs two things on disk: the **feature matrix** (rebuilt locally,
+needs a FRED key) and the **trained models** (already committed). If either is
+missing it says so on screen and names the command to run — it does not crash.
+
+### From a fresh clone
+
+```bash
+# 1. Environment
+python -m venv .venv
+.venv\Scripts\activate                # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt
+
+# 2. FRED key (free): https://fred.stlouisfed.org/docs/api/api_key.html
+copy .env.example .env                # macOS/Linux: cp .env.example .env
+#    then put your key after FRED_API_KEY=
+
+# 3. Build the feature matrix (~15 min first run, downloads ~1.5 GB)
+python -m pipeline all
+
+# 4. OPTIONAL — zip boundaries for the map (~66 MB from the US Census, one time)
+pip install geopandas
+python -m app.geo
+
+# 5. Launch
+streamlit run app/main.py
+```
+
+Step 4 is optional: without it every other panel works and the map shows a
+message telling you to run it. **You do not need to train anything** — the point
+and quantile models are committed. Run `python -m model train` only if `models/`
+has been cleared or you want to re-fit (~30 min).
+
+> **Verification status — please read before relying on these steps.**
+>
+> These instructions have **not** been run end-to-end on a clean machine. What
+> was verified, on a machine that already had the data built:
+>
+> - the file tree a fresh clone receives (`app/`, `scripts/`, `docs/`, `models/`,
+>   `reports/` all present and correctly not gitignored);
+> - `streamlit run app/main.py` launching and rendering from the repo root;
+> - the missing-artifact screen appearing (rather than a traceback) when
+>   `data/processed/features.parquet` is absent, naming the command to run;
+> - the full test suite passing.
+>
+> What is **unverified**: steps 1–3 from scratch — creating a new virtualenv,
+> `pip install -r requirements.txt` resolving cleanly on a machine that has never
+> installed these packages, and `python -m pipeline all` rebuilding the feature
+> matrix with a fresh FRED key. The pipeline rebuild alone takes ~15 minutes and
+> ~1.6 GB of download, which is why it was not repeated here.
+>
+> **If you are the first teammate to set this up on a new machine, you are the
+> fresh-clone test.** Follow steps 1–5 exactly as written, and if any step fails
+> or needs a command that is not on this page, fix this section — that is the
+> gap the test exists to find. Two things worth watching: `geopandas` (step 4) is
+> deliberately *not* in `requirements.txt`, and `playwright` is needed only for
+> `scripts/capture_screenshots.py`.
+
+### What to expect
+
+| | |
+|---|---|
+| First load | **~1.5 s** after the server starts (0.4 s to read the live slice, 0.8 s to deserialise the models) |
+| Any control change | **~0.07 s** to re-rank all 18,694 zips — see [reports/dashboard_benchmark.md](reports/dashboard_benchmark.md) |
+| Map, one metro | ~0.05 s; the first map render also loads the boundary cache (~0.6 s) |
+| Drill-down, first zip | ~1.6 s (builds the explainer); ~0.02 s for every zip after |
+| Memory | ~2 GB resident once the drill-down has loaded the feature matrix |
+
+The map draws at most 6,000 zips at once. With no metro selected the universe is
+18,694, so it asks you to pick target metros in the sidebar; the table,
+allocation and drill-down still cover everything.
+
+### Using it
+
+Every sidebar control changes a model result, not just the view — see
+[docs/user_guide.md](docs/user_guide.md) for what each one does to the decision.
+The short version: **Target metros** picks what gets scored, the **eligibility**
+sliders decide what qualifies, **risk tolerance** sets how hard uncertainty is
+penalised in the ranking, the **rate scenario** re-scores every zip under a
+mortgage-rate shift, and **budget** splits capital across whatever survives.
+
+### Regenerating the dashboard artifacts
+
+```bash
+python scripts/benchmark_dashboard.py    # -> reports/dashboard_benchmark.md
+python scripts/capture_screenshots.py    # -> reports/figures/*.png
+```
+
+`capture_screenshots.py` additionally needs
+`pip install playwright && playwright install chromium`; it is a capture-time
+dependency only and the dashboard itself does not use it.
 
 ## Model & decision layer
 
@@ -149,6 +261,8 @@ seed 42):
 | Holdout metrics + figures | `python -m model evaluate --holdout` | `reports/holdout_results.md`, `reports/figures/` |
 | SHAP top features + summary plot | `python -m model explain` | `reports/explanations.md`, `reports/figures/` |
 | Scenario→allocation latency | `python -m model scenario-bench` | stdout log |
+| Dashboard re-rank median / p95 | `python scripts/benchmark_dashboard.py` | `reports/dashboard_benchmark.md` |
+| Dashboard screenshots (deck) | `python scripts/capture_screenshots.py` | `reports/figures/*.png` |
 | Model card (all headline results) | — (curated) | `reports/model_card.md` |
 
 ## Tests
@@ -162,6 +276,13 @@ and the lookahead/leakage audit). `tests/test_predict.py`, `test_decide.py`,
 `test_scenario.py`, and `test_retrain.py` cover the model layer's quantile
 monotonicity, ranking/allocation logic, scenario consistency, and the
 degradation gate.
+
+Dashboard tests: `test_dashboard_controls.py` (every control reaches a model
+call), `test_dashboard_allocation.py` (the dollars add up), `test_geo_join.py`
+(geometry coverage is counted, colour domain is fixed), `test_drilldown.py`
+(explanations come from `model/`, the backtest uses holdout months only). A few
+assert against the real feature matrix and skip cleanly when it hasn't been
+built.
 
 ## Data & model notes
 

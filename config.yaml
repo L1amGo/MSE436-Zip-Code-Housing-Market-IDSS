@@ -8,6 +8,11 @@ sources:
   zillow:
     # ZHVI, zip-level, smoothed + seasonally adjusted; confirmed by T1.
     url: "https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv"
+  # US Census cartographic ZCTA boundaries, used only to draw the dashboard map.
+  # Not a modelling input: nothing here reaches features.parquet.
+  zcta:
+    url: "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip"
+    zip_field: ZCTA5CE20   # shapefile attribute holding the 5-digit ZCTA code
   fred:
     base_url: "https://api.stlouisfed.org/fred"
     series:
@@ -61,6 +66,50 @@ model:
   default_min_roi: 0.0                      # filter default: keep zips with p50 >= this
   default_max_downside: 0.05                # filter default: lower-bound >= -this
   degradation_rmse_multiplier: 2.0          # retrain alert if fresh RMSE > mult x baseline
+
+# Dashboard defaults (spec_dashboard.md). Every sidebar control reads its initial
+# value and its option list from here, so "Reset to defaults" restores config
+# state rather than values hardcoded in app/.
+dashboard:
+  default_ci_level: 80                      # must be one of model.ci_levels (80 / 90)
+  default_budget: 1000000                   # quarterly capital to allocate, dollars
+  budget_step: 50000                        # number_input increment
+  budget_min: 0
+  rate_scenario_bps: [-50, -25, 0, 25, 50, 100]  # MORTGAGE30US shocks offered, basis points
+  default_rate_scenario_bps: 0              # 0 = today's rate, i.e. the unshocked forecast
+  # Risk tolerance -> the lambda in score = p50 - lambda * ci80_width. A LOW
+  # tolerance penalises band width most, so it maps to the HIGHEST lambda. Values
+  # must sit inside model.risk_lambda_range.
+  #
+  # These are deliberately smaller than model.risk_lambda_default (1.0). On the
+  # live slice the median 80% band (~16 pp) is ~2.75x the median predicted return
+  # (~5.8 pp), so p50 - lambda*width turns negative for nearly every zip once
+  # lambda >= 1: at lambda = 1.0 exactly one zip of 5,326 scores above zero and
+  # takes the entire budget, and at lambda = 2.0 none do, which trips allocate()'s
+  # equal-split fallback. Measured funded-zip counts on the 2026-05 slice:
+  #   lambda 0.10 -> 4,908 funded, largest share 0.10%
+  #   lambda 0.25 -> 3,713 funded, largest share 0.14%
+  #   lambda 0.50 -> 1,295 funded, largest share 0.41%
+  #   lambda 1.00 ->     1 funded, largest share  100%
+  # The ordering Low > Moderate > High is what carries the risk semantics; the
+  # absolute scale is chosen so all three settings produce a real portfolio.
+  risk_tolerance_lambda:
+    Low: 0.50
+    Moderate: 0.25
+    High: 0.10
+  default_risk_tolerance: Moderate
+  table_page_size: 50                       # rows shown in the ranked table at once
+  # Fixed diverging domain so a colour means the same 3-month change in every
+  # scenario; values beyond it clamp to the end colours rather than rescaling.
+  map_color_domain: [-0.05, 0.05]
+  map_simplify_tolerance: 0.005             # degrees; boundary decimation for browser render
+  # Polygon cap before the map asks for a metro filter. Measured figure-build +
+  # serialise time on the 2026-05 slice, geometry subset to the zips drawn:
+  #     371 zips 0.05s /  0.3 MB      5,045 zips 0.69s /  6.1 MB
+  #   2,215 zips 0.19s /  2.5 MB      9,784 zips 1.30s / 12.6 MB
+  #  18,694 zips 3.05s / 31.2 MB  <- the whole universe, over the 2s budget
+  # 6,000 keeps the server side near 0.7s, leaving headroom for browser paint.
+  map_max_zips: 6000
 
 # Populated by T1 verify-schema: per-source logical -> actual column mapping,
 # discovered from the live files. Do not hand-edit.

@@ -3,7 +3,13 @@
 import pandas as pd
 import pytest
 
-from pipeline.clean import extract_zip, tidy_fred, tidy_redfin, tidy_zillow
+from pipeline.clean import (
+    extract_zip,
+    resolve_zip_metro,
+    tidy_fred,
+    tidy_redfin,
+    tidy_zillow,
+)
 
 THRESHOLD = 10
 
@@ -177,3 +183,52 @@ class TestFred:
         out = tidy_fred(obs, {"GAPPY": "M", "LONGER": "M"}).set_index("month")
         assert out.loc["2024-02-01", "GAPPY"] == pytest.approx(4.0), "interior gap ffilled"
         assert pd.isna(out.loc["2024-04-01", "GAPPY"]), "trailing month must stay NaN"
+
+
+# --- zip -> metro lookup (dashboard presentation layer) ---------------------
+
+
+def _counts(rows):
+    return pd.DataFrame(rows, columns=["region_zip", "metro", "n"])
+
+
+def test_resolve_zip_metro_picks_most_frequent_label():
+    """A zip relabelled mid-history resolves to whichever label dominates."""
+    counts = _counts(
+        [
+            ("Zip Code: 94110", "San Francisco, CA", 40),
+            ("Zip Code: 94110", "SF Bay Area, CA", 5),
+        ]
+    )
+    out = resolve_zip_metro(counts)
+    assert out.loc[out["zip"] == "94110", "metro"].tolist() == ["San Francisco, CA"]
+
+
+def test_resolve_zip_metro_breaks_ties_deterministically():
+    """Equal counts fall back to the alphabetically first label, not input order."""
+    a = resolve_zip_metro(_counts([("Zip Code: 02139", "Boston, MA", 7),
+                                   ("Zip Code: 02139", "Cambridge, MA", 7)]))
+    b = resolve_zip_metro(_counts([("Zip Code: 02139", "Cambridge, MA", 7),
+                                   ("Zip Code: 02139", "Boston, MA", 7)]))
+    assert a.equals(b)
+    assert a["metro"].tolist() == ["Boston, MA"]
+
+
+def test_resolve_zip_metro_one_row_per_zip():
+    counts = _counts(
+        [
+            ("Zip Code: 94110", "San Francisco, CA", 3),
+            ("Zip Code: 94110", "SF Bay Area, CA", 1),
+            ("Zip Code: 02139", "Boston, MA", 2),
+        ]
+    )
+    out = resolve_zip_metro(counts)
+    assert out["zip"].is_unique
+    assert len(out) == 2
+
+
+def test_resolve_zip_metro_empty_input_returns_empty_lookup():
+    """No metro column in the source is a disabled filter, not a crash."""
+    out = resolve_zip_metro(_counts([]))
+    assert out.empty
+    assert list(out.columns) == ["zip", "metro"]

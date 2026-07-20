@@ -47,6 +47,10 @@ REDFIN_NUMERIC = [
 ]
 REDFIN_CHUNKSIZE = 1_000_000
 
+# Redfin's metro label. Not a model feature — carried only into the zip -> metro
+# lookup so the dashboard can group and filter by metro.
+METRO_COL = "PARENT_METRO_REGION"
+
 
 def _log_step(source: str, step: str, before: int, after: int) -> None:
     log.info("%s: %-38s %10d -> %10d rows (-%d)", source, step, before, after, before - after)
@@ -172,11 +176,14 @@ def _read_redfin_chunks(path: Path, config: dict) -> pd.DataFrame:
     property_type = config["params"]["property_type"]
     metro_filter = config["params"]["dev_metro_filter"] or []
 
-    usecols = list(cols.values())
-    if metro_filter:
-        usecols.append("PARENT_METRO_REGION")
+    # PARENT_METRO_REGION is always read: it feeds the dev metro filter when set,
+    # and the zip -> metro lookup the dashboard groups by. It is dropped by
+    # tidy_redfin, so it never reaches the feature matrix.
+    usecols = [*cols.values(), METRO_COL]
+    actual_to_logical[METRO_COL] = "metro"
 
     parts = []
+    metro_parts = []
     rows_in = kept_property = kept_metro = 0
     reader = pd.read_csv(
         path,
@@ -192,9 +199,20 @@ def _read_redfin_chunks(path: Path, config: dict) -> pd.DataFrame:
         chunk = chunk[chunk[cols["property_type"]] == property_type]
         kept_property += len(chunk)
         if metro_filter:
-            chunk = chunk[chunk["PARENT_METRO_REGION"].isin(metro_filter)]
+            chunk = chunk[chunk[METRO_COL].isin(metro_filter)]
         kept_metro += len(chunk)
-        parts.append(chunk.rename(columns=actual_to_logical))
+        chunk = chunk.rename(columns=actual_to_logical)
+        # Tally metro labels per chunk and drop the column before concat: keeping
+        # a 3M-row object-dtype label column alive alongside the panel is enough
+        # memory pressure to take the process down.
+        if "metro" in chunk.columns:
+            metro_parts.append(
+                chunk.groupby(["region_zip", "metro"], dropna=True, observed=True)
+                .size()
+                .reset_index(name="n")
+            )
+            chunk = chunk.drop(columns=["metro"])
+        parts.append(chunk)
         log.info("redfin: read %d rows so far ...", rows_in)
     _log_step("redfin", f"property_type == {property_type!r}", rows_in, kept_property)
     if metro_filter:
@@ -202,7 +220,66 @@ def _read_redfin_chunks(path: Path, config: dict) -> pd.DataFrame:
     df = pd.concat(parts, ignore_index=True)
     for c in REDFIN_NUMERIC:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    return df
+    metro_counts = (
+        pd.concat(metro_parts, ignore_index=True)
+        .groupby(["region_zip", "metro"], observed=True)["n"]
+        .sum()
+        .reset_index()
+        if metro_parts
+        else pd.DataFrame(columns=["region_zip", "metro", "n"])
+    )
+    return df, metro_counts
+
+
+def resolve_zip_metro(metro_counts: pd.DataFrame) -> pd.DataFrame:
+    """Pick one metro label per zip from per-(region, metro) row counts.
+
+    A zip can appear under more than one metro label across the history (Redfin
+    revises its region names), so each zip resolves to its most frequent label,
+    with the label name breaking ties so the result is deterministic.
+    """
+    empty = pd.DataFrame({"zip": pd.Series(dtype="object"), "metro": pd.Series(dtype="object")})
+    if metro_counts is None or not len(metro_counts):
+        return empty
+
+    df = metro_counts.copy()
+    df["zip"] = extract_zip(df["region_zip"])
+    df["metro"] = df["metro"].astype("object")
+    df = df.dropna(subset=["zip", "metro"])
+    if df.empty:
+        return empty
+
+    counts = df.groupby(["zip", "metro"], observed=True)["n"].sum().reset_index()
+    counts = counts.sort_values(
+        ["zip", "n", "metro"], ascending=[True, False, True], kind="mergesort"
+    )
+    return counts.drop_duplicates(subset=["zip"], keep="first")[["zip", "metro"]].reset_index(
+        drop=True
+    )
+
+
+def write_zip_metro(metro_counts: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Write the zip -> metro lookup the dashboard groups by.
+
+    Presentation-layer only: written to `processed/` alongside features.parquet,
+    but never joined into the feature matrix, so the committed models keep seeing
+    exactly the inputs they were trained on.
+    """
+    processed = REPO_ROOT / config["paths"]["processed"]
+    processed.mkdir(parents=True, exist_ok=True)
+    out = processed / "zip_metro.parquet"
+
+    lookup = resolve_zip_metro(metro_counts)
+    if lookup.empty:
+        # Don't abort a 15-minute run over a presentation-layer column: write an
+        # empty lookup and let the dashboard report "metro unavailable" instead.
+        log.warning(
+            "no %s values found — writing an empty zip -> metro lookup; "
+            "the dashboard's metro filter will be disabled.", METRO_COL,
+        )
+    lookup.to_parquet(out, index=False)
+    log.info("wrote %s (%d zips, %d metros)", out, len(lookup), lookup["metro"].nunique())
+    return lookup
 
 
 def run(config: dict, force: bool = False) -> None:
@@ -221,9 +298,9 @@ def run(config: dict, force: bool = False) -> None:
         raise RuntimeError("config.yaml `schema:` is empty. Run `python -m pipeline verify-schema` first.")
 
     # Redfin
-    redfin = tidy_redfin(
-        _read_redfin_chunks(redfin_gz, config), config["params"]["low_volume_threshold"]
-    )
+    redfin_raw, metro_counts = _read_redfin_chunks(redfin_gz, config)
+    write_zip_metro(metro_counts, config)
+    redfin = tidy_redfin(redfin_raw, config["params"]["low_volume_threshold"])
     redfin.to_parquet(interim / "redfin.parquet", index=False)
     log.info("wrote %s (%d rows, %d zips)", interim / "redfin.parquet", len(redfin), redfin["zip"].nunique())
 

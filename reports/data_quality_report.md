@@ -24,20 +24,20 @@ _Generated 2026-07-20 by `python -m pipeline report`._
 
 | column | % missing |
 |---|---|
-| `price_mom_12m` | 10.3% |
 | `zhvi_mom_12m` | 10.3% |
+| `price_mom_12m` | 10.3% |
 | `inventory_chg_3m` | 8.7% |
-| `zhvi_mom_6m` | 6.8% |
 | `price_mom_6m` | 6.8% |
-| `zhvi_mom_3m` | 5.0% |
-| `mortgage_delta_3m` | 5.0% |
-| `price_mom_3m` | 5.0% |
+| `zhvi_mom_6m` | 6.8% |
 | `unrate_delta_3m` | 5.0% |
 | `target` | 5.0% |
+| `price_mom_3m` | 5.0% |
+| `zhvi_mom_3m` | 5.0% |
+| `mortgage_delta_3m` | 5.0% |
 | `inventory` | 3.9% |
 | `avg_sale_to_list` | 3.4% |
-| `listings_to_sales` | 2.7% |
 | `new_listings` | 2.7% |
+| `listings_to_sales` | 2.7% |
 | `price_mom_1m` | 2.2% |
 | `zhvi_mom_1m` | 2.2% |
 | `sold_above_list` | 1.0% |

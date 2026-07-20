@@ -10,3 +10,5 @@ lightgbm
 shap
 matplotlib
 joblib
+streamlit
+plotly
