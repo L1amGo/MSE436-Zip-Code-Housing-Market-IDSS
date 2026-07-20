@@ -362,19 +362,22 @@ def _comparison_head(cv_results: dict, config: dict) -> str:
 
 
 def write_comparison_report(cv_results: dict, config: dict) -> None:
-    """Write reports/model_comparison.md, preserving any team-edited Trade-offs section.
+    """Write reports/model_comparison.md, regenerating only the auto CV content.
 
-    The auto content (table, params, grid) is regenerated each run; everything from
-    the Trade-offs heading down is kept verbatim so team edits survive re-runs.
+    Everything from the first preserved marker down is kept verbatim: the M3
+    calibration section (if present) and the team-edited Trade-offs section both
+    survive a `model train` re-run. Only the CV table / params / grid up top are
+    rebuilt.
     """
     path = reports_dir(config) / "model_comparison.md"
-    tradeoffs = _DEFAULT_TRADEOFFS
+    tail = "\n" + _DEFAULT_TRADEOFFS
     if path.exists():
         existing = path.read_text(encoding="utf-8")
-        idx = existing.find(TRADEOFFS_MARKER)
-        if idx != -1:
-            tradeoffs = existing[idx:]
-    path.write_text(_comparison_head(cv_results, config) + "\n" + tradeoffs, encoding="utf-8")
+        markers = [existing.find(m) for m in (CALIBRATION_MARKER, TRADEOFFS_MARKER)]
+        present = [i for i in markers if i != -1]
+        if present:
+            tail = existing[min(present):]
+    path.write_text(_comparison_head(cv_results, config) + "\n" + tail, encoding="utf-8")
     log.info("wrote %s", path.relative_to(REPO_ROOT))
 
 
