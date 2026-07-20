@@ -1,4 +1,6 @@
 data/
+models/
+!models/.gitkeep
 .env
 __pycache__/
 *.parquet
