@@ -8,13 +8,14 @@ will implement them (mirrors the pipeline scaffold's behaviour).
 import argparse
 import sys
 
-from model import evaluate, explain, retrain, train
+from model import evaluate, explain, retrain, scenario, train
 from pipeline.io_utils import load_config
 
 STAGES = {
     "train": train.run,
     "evaluate": evaluate.run,
     "explain": explain.run,
+    "scenario-bench": scenario.run,
     "retrain": retrain.run,
 }
 
