@@ -51,6 +51,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="evaluate: one-shot 6-month holdout evaluation with figures (M4)",
     )
+    parser.add_argument(
+        "--accept-degraded",
+        action="store_true",
+        help="retrain: promote the fresh model even if it trips the degradation gate",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -64,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
                 intervals=args.intervals,
                 holdout=args.holdout,
             )
+        elif args.stage == "retrain":
+            return retrain.run(config, accept_degraded=args.accept_degraded) or 0
         else:
             STAGES[args.stage](config)
     except NotImplementedError as exc:

@@ -1,11 +1,14 @@
-# Zip-Code Housing Market IDSS — Data Pipeline
+# Zip-Code Housing Market IDSS
 
-Predicts 3-month-ahead median sale price % change for US zip codes so a
-property portfolio manager can allocate a quarterly acquisition budget.
-**This repo currently contains the data pipeline only**: raw public data in →
-`data/processed/features.parquet` with leakage-safe features, labels, and
-temporal splits out. Model (XGBoost) and dashboard (Streamlit) come later;
-`models/` and `app/` are placeholders.
+Predicts the 3-month-ahead median sale price % change for US zip codes so a
+property portfolio manager can rank markets, stress-test macro scenarios, and
+allocate a quarterly acquisition budget. Two layers:
+
+1. **Data pipeline** (`pipeline/`): raw public data → `data/processed/features.parquet`
+   with leakage-safe features, a 3-month label, and temporal splits.
+2. **Model & decision layer** (`model/`): XGBoost point + quantile models, SHAP
+   explanations, a scenario engine, and a risk-adjusted ranking/allocation
+   decision layer. The Streamlit dashboard is a later spec; `app/` is a placeholder.
 
 MSCI 436 course project, University of Waterloo.
 
@@ -28,7 +31,15 @@ MSCI 436 course project, University of Waterloo.
                              |
                         [ split ]        train / test / live column + rolling-CV utility
                              |
-                        [ report ]       data/data_quality_report.md
+                        [ report ]       reports/data_quality_report.md
+                             |
+        ============ model & decision layer (model/) ============
+                             |
+   [ train ]  XGBoost point + quantiles, gapped-CV selection -> models/ + model_comparison.md
+   [ evaluate --holdout ]  one-shot 6-month test eval -> holdout_results.md + figures/
+   [ explain ]  global + per-zip SHAP -> shap_summary.png + explanations.md
+   [ scenario + decide ]  re-score under macro shifts; rank / filter / allocate
+   [ retrain ]  monthly refresh + monitoring + versioning -> retrain_log.md
 ```
 
 ## Setup
@@ -67,10 +78,70 @@ in `data/interim/` + `data/processed/`.
 | `data/raw/` | untouched source files + `manifest.json` (URL, timestamp, size, sha256) + `schema_report.md` |
 | `data/interim/` | tidy per-source parquets (`redfin`, `zillow`, `fred`) and the merged `joined.parquet` |
 | `data/processed/features.parquet` | modeling table: features, `target`, `split` (train/test/live) |
-| `data/data_quality_report.md` | honest panel summary: coverage, flags, missing values, caveats |
+| `reports/` | **tracked** grader-facing reports (see below) |
 | `feature_dictionary.md` | every column: definition, formula, source |
 
-`data/` is gitignored; a fresh clone rebuilds it with `python -m pipeline all`.
+`data/` and `models/` are gitignored; a fresh clone rebuilds them with
+`python -m pipeline all` then `python -m model all`. Reports in `reports/` are
+committed so they're visible without a run.
+
+## Model & decision layer
+
+```bash
+python -m model train           # grid-search XGBoost vs RF/LightGBM; fit point + quantile models
+python -m model evaluate        # rebuild the CV comparison report from cached results
+python -m model evaluate --baselines-only   # M1 reference baselines
+python -m model evaluate --intervals        # confidence-band calibration
+python -m model evaluate --holdout          # one-shot 6-month holdout eval + figures
+python -m model explain         # global + per-zip SHAP; writes shap_summary.png
+python -m model scenario-bench  # time a full scenario -> allocation over all zips
+python -m model all             # train, evaluate, explain in order
+```
+
+The decision layer is importable for the dashboard (no UI deps):
+`scenario.apply_scenario` / `score_scenario`, `decide.rank` / `filter` / `allocate`,
+and `predict.score` (point + p05/p10/p50/p90/p95 + band widths).
+
+**Confidence bands are labelled 80% (p10–p90) and 90% (p05–p95)** — not "95%".
+
+**Runtime:** `model train` ~12 min (grid) + a multi-quantile fit; SHAP ~10 s;
+`scenario-bench` well under 1 s for ~19k zips. `models/` binaries are gitignored.
+
+## Operations (monthly retrain)
+
+```bash
+python -m model retrain                  # refresh data -> retrain on rolling 36-month window
+python -m model retrain --accept-degraded # promote even if the degradation gate trips
+```
+
+Intended to run on a schedule (e.g. cron / a small VM overnight each month). Each
+run: refreshes data (`download → split`, download cached), retrains point +
+quantile models on the most recent 36 labeled months, computes out-of-sample
+**monitoring metrics** and **feature-drift** stats, versions the artifact
+(timestamped file + a `latest` pointer, so rollback is possible), and appends a
+dated entry to `reports/retrain_log.md`.
+
+**Degradation gate:** if the fresh RMSE exceeds `model.degradation_rmse_multiplier`
+× the baseline RMSE, the run prints a `DEGRADATION ALERT`, logs it, and **exits
+nonzero (code 3) without promoting** `latest` — a scheduler registers the run as
+failed and can notify. The degraded model is saved for inspection; promote it
+manually with `--accept-degraded`.
+
+## Reproducing every reported number
+
+Every figure in the reports and slides traces to one command (all deterministic,
+seed 42):
+
+| number / artifact | command | lands in |
+|---|---|---|
+| Panel size, coverage, missing values | `python -m pipeline all` | `reports/data_quality_report.md` |
+| Baseline CV metrics | `python -m model evaluate --baselines-only` | `reports/baselines.md` |
+| Model comparison table + chosen params | `python -m model train` | `reports/model_comparison.md` |
+| Band calibration (80% / 90% coverage) | `python -m model evaluate --intervals` | `reports/model_comparison.md` |
+| Holdout metrics + figures | `python -m model evaluate --holdout` | `reports/holdout_results.md`, `reports/figures/` |
+| SHAP top features + summary plot | `python -m model explain` | `reports/explanations.md`, `reports/figures/` |
+| Scenario→allocation latency | `python -m model scenario-bench` | stdout log |
+| Model card (all headline results) | — (curated) | `reports/model_card.md` |
 
 ## Tests
 
@@ -78,15 +149,18 @@ in `data/interim/` + `data/processed/`.
 pytest            # whole suite; synthetic fixtures, no network needed
 ```
 
-`tests/test_featurize.py` contains the two critical safety tests: the label
-exactly equals the change realized at t+3, and a lookahead audit proving that
-corrupting all data after month t changes no feature value at t.
+`tests/test_featurize.py` holds the two critical safety tests (label correctness
+and the lookahead/leakage audit). `tests/test_predict.py`, `test_decide.py`,
+`test_scenario.py`, and `test_retrain.py` cover the model layer's quantile
+monotonicity, ranking/allocation logic, scenario consistency, and the
+degradation gate.
 
-## Data notes
+## Data & model notes
 
 - Feature definitions: [feature_dictionary.md](feature_dictionary.md)
-- Data limitations (coverage, low-volume flags, outliers, the Redfin 90-day
-  window convention, the Oct-2025 FRED shutdown gap): `data/data_quality_report.md`
-  after a run
+- Data limitations (coverage, low-volume flags, the Redfin 90-day window
+  convention, the Oct-2025 FRED shutdown gap): [reports/data_quality_report.md](reports/data_quality_report.md)
+- Model card (task, protocol, results, limitations, intended use):
+  [reports/model_card.md](reports/model_card.md) — **DRAFT, team to finalize**
 - Splits: `test` = most recent 6 labeled months; CV folds keep a 3-month gap
   and a 36-month training window (`pipeline.split.rolling_cv`)
