@@ -45,6 +45,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="evaluate: compute confidence-band calibration (M3) and append it to the report",
     )
+    parser.add_argument(
+        "--holdout",
+        action="store_true",
+        help="evaluate: one-shot 6-month holdout evaluation with figures (M4)",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -52,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage == "all":
             run_all(config)
         elif args.stage == "evaluate":
-            evaluate.run(config, baselines_only=args.baselines_only, intervals=args.intervals)
+            evaluate.run(
+                config,
+                baselines_only=args.baselines_only,
+                intervals=args.intervals,
+                holdout=args.holdout,
+            )
         else:
             STAGES[args.stage](config)
     except NotImplementedError as exc:
