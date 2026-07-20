@@ -35,12 +35,21 @@ def main(argv: list[str] | None = None) -> int:
         choices=[*STAGES, "all"],
         help="model stage to run ('all' runs train, evaluate, explain in order)",
     )
+    parser.add_argument(
+        "--baselines-only",
+        action="store_true",
+        help="evaluate: score the M1 reference baselines only (skip model comparison/holdout)",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
-    runner = run_all if args.stage == "all" else STAGES[args.stage]
     try:
-        runner(config)
+        if args.stage == "all":
+            run_all(config)
+        elif args.stage == "evaluate":
+            evaluate.run(config, baselines_only=args.baselines_only)
+        else:
+            STAGES[args.stage](config)
     except NotImplementedError as exc:
         print(f"not implemented: {exc}", file=sys.stderr)
         return 2
