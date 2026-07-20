@@ -4,3 +4,9 @@ requests
 pyyaml
 python-dotenv
 pytest
+xgboost
+scikit-learn
+lightgbm
+shap
+matplotlib
+joblib

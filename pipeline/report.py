@@ -90,6 +90,7 @@ def run(config: dict, force: bool = False) -> None:
         " (see `data/raw/schema_report.md`).",
         "",
     ]
-    out = REPO_ROOT / "data" / "data_quality_report.md"
+    out = REPO_ROOT / config["paths"]["reports"] / "data_quality_report.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
     log.info("wrote %s", out.relative_to(REPO_ROOT))

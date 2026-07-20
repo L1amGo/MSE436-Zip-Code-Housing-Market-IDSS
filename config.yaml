@@ -31,6 +31,27 @@ paths:
   raw: data/raw
   interim: data/interim
   processed: data/processed
+  reports: reports        # tracked; grader-facing reports live here (not in gitignored data/)
+
+# Model & decision layer tunables (spec_model.md). Point + quantile models,
+# CV selection, scenario overrides, and the decision-layer defaults.
+model:
+  random_seed: 42
+  quantiles: [0.05, 0.1, 0.5, 0.9, 0.95]   # quantile models for confidence bands
+  cv_folds: 5                               # gapped rolling-CV folds for selection
+  xgb_param_grid:                           # small grid, <= 12 combos (3 x 2 x 2)
+    max_depth: [3, 5, 7]
+    n_estimators: [200, 400]
+    learning_rate: [0.03, 0.1]
+  exclude_flags: [low_volume, target_outlier]  # rows excluded from training + headline metrics
+  top_k_shap_features: 10
+  scenario_features: [MORTGAGE30US, mortgage_delta_3m]  # macro cols a user may override
+  ci_levels: [80, 95]                       # user-selectable band: 80 -> p10/p90, 95 -> p05/p95
+  risk_lambda_default: 1.0                  # risk-tolerance coefficient for ranking
+  risk_lambda_range: [0.0, 3.0]             # slider range for risk_lambda
+  default_min_roi: 0.0                      # filter default: keep zips with p50 >= this
+  default_max_downside: 0.05                # filter default: lower-bound >= -this
+  degradation_rmse_multiplier: 2.0          # retrain alert if fresh RMSE > mult x baseline
 
 # Populated by T1 verify-schema: per-source logical -> actual column mapping,
 # discovered from the live files. Do not hand-edit.

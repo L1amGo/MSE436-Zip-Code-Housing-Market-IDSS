@@ -300,5 +300,5 @@ def run(config: dict, force: bool = False) -> None:
         _check_drift(config, schema_live, report_info)
     else:
         _write_schema_to_config(schema_live)
-    _write_report(report_info, REPO_ROOT / config["paths"]["raw"] / "schema_report.md")
+    _write_report(report_info, REPO_ROOT / config["paths"]["reports"] / "schema_report.md")
     log.info("verify-schema complete; %s bytes downloaded (< 10 MB required)", f"{_BYTES['n']:,}")
