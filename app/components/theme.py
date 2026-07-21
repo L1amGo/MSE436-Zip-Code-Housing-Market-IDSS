@@ -1,17 +1,25 @@
 """Chart palette and shared Plotly styling.
 
 One place holding the colours so every figure in the dashboard reads as one
-system, and so light/dark are *selected* rather than an automatic flip. The
-values are the validated reference palette: blue as the sequential/single-series
-hue, blue-to-red as the diverging pair for the map, gray at the midpoint.
+system. The values are the validated reference palette: blue as the
+sequential/single-series hue, blue-to-red as the diverging pair for the map,
+grey at the midpoint. Checked with the palette validator — lightness band,
+chroma floor, CVD separation and contrast all pass against the light surface.
+
+**Light only, deliberately.** The app is pinned to Streamlit's light theme in
+`.streamlit/config.toml`. A dark palette was tried and dropped: Streamlit
+resolves the viewer's theme in the browser, so the server-side figure code could
+not reliably tell which surface it was drawing on, and the mismatch shipped a
+near-black backtest line onto a near-black background. One palette that is
+always correct beats two where one silently misfires — and every figure in
+reports/figures/ is light, so the app matches the deck.
 
 Charts here are single-series or diverging-continuous, so no categorical slots
-are in play and no legend is needed — the title names the measure.
+are in play and no legend is needed except where two series carry different
+meanings.
 """
 
 from __future__ import annotations
-
-import streamlit as st
 
 LIGHT = {
     "surface": "#fcfcfb",
@@ -27,37 +35,14 @@ LIGHT = {
     "excluded": "#c3c2b7",  # de-emphasised, non-qualifying marks
 }
 
-DARK = {
-    "surface": "#1a1a19",
-    "text_primary": "#ffffff",
-    "text_secondary": "#c3c2b7",
-    "muted": "#898781",
-    "grid": "#2c2c2a",
-    "axis": "#383835",
-    "series": "#3987e5",
-    "positive": "#3987e5",
-    "negative": "#d03b3b",
-    "neutral": "#383835",
-    "excluded": "#52514e",
-}
-
-
-def is_dark() -> bool:
-    """Whether Streamlit is currently rendering on a dark surface."""
-    try:  # Streamlit >= 1.46 exposes the resolved theme
-        theme = st.context.theme
-        if theme and getattr(theme, "type", None):
-            return theme.type == "dark"
-    except Exception:  # pragma: no cover - older Streamlit, or no script context
-        pass
-    try:
-        return str(st.get_option("theme.base")).lower() == "dark"
-    except Exception:  # pragma: no cover
-        return False
+# Band fill for the backtest: the series blue at low alpha, so the shaded
+# interval reads as the same colour as the line it belongs to.
+BAND_FILL = "rgba(42, 120, 214, 0.12)"
 
 
 def palette() -> dict:
-    return DARK if is_dark() else LIGHT
+    """The chart palette. One surface, so one palette — see the module docstring."""
+    return LIGHT
 
 
 def style(fig, pal: dict, *, x_title: str, y_title: str, height: int | None = None):

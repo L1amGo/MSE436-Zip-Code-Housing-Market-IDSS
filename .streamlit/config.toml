@@ -1,0 +1,13 @@
+# Pin the dashboard to the light theme.
+#
+# Streamlit otherwise follows the viewer's OS appearance, which made the app
+# render its own chrome dark while the Plotly figures kept their light palette —
+# the "Realized" backtest line came out near-black on a near-black background.
+# The project only maintains one chart palette, and every screenshot in
+# reports/figures/ is light, so the app is pinned to match rather than shipping a
+# half-finished second theme.
+#
+# A viewer can still override this from the app's ⋮ → Settings → Appearance menu;
+# if they do, the figures stay light while the surrounding chrome goes dark.
+[theme]
+base = "light"

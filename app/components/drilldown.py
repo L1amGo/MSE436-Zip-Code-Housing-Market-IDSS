@@ -190,7 +190,7 @@ def backtest_chart(frame: pd.DataFrame, pal: dict):
             x=list(frame["month"]) + list(frame["month"])[::-1],
             y=list(frame["hi"] * PCT) + list(frame["lo"] * PCT)[::-1],
             fill="toself",
-            fillcolor="rgba(42,120,214,0.12)",
+            fillcolor=theme.BAND_FILL,
             line=dict(width=0),
             hoverinfo="skip",
             showlegend=True,
